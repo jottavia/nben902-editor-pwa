@@ -205,16 +205,110 @@ def upload_file():
         return jsonify({"success": False, "message": f"Server Error: {str(e)}"}), 500
 
 
-def open_browser():
-    """Wait a moment for server to start, then open browser."""
-    time.sleep(1.5)
+# ============== System Tray Implementation ==============
+from PIL import Image, ImageDraw
+import pystray
+from pystray import MenuItem as item
+
+# Global references
+flask_thread = None
+tray_icon = None
+
+def create_tray_icon():
+    """Create a simple green circle icon for the system tray."""
+    # Create a 64x64 image with a green circle
+    size = 64
+    image = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    
+    # Draw green circle with border
+    margin = 4
+    draw.ellipse([margin, margin, size - margin, size - margin], 
+                 fill=(34, 197, 94, 255),  # Green
+                 outline=(22, 163, 74, 255), width=2)
+    
+    # Draw "N" in the center
+    try:
+        from PIL import ImageFont
+        # Try to use a system font
+        font = ImageFont.truetype("arial.ttf", 32)
+    except:
+        font = ImageFont.load_default()
+    
+    # Center the text
+    text = "N"
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    x = (size - text_width) // 2
+    y = (size - text_height) // 2 - 4
+    draw.text((x, y), text, fill=(255, 255, 255, 255), font=font)
+    
+    return image
+
+def open_browser_action(icon=None, item=None):
+    """Open the browser to the PWA."""
     url = f"http://{HOST}:{PORT}"
-    print(f"Opening browser to {url}...")
     webbrowser.open(url)
 
-if __name__ == "__main__":
-    # Auto-launch browser in a separate thread
-    threading.Thread(target=open_browser).start()
+def restart_server_action(icon=None, item=None):
+    """Restart the Flask server."""
+    global flask_thread
     
-    print(f"Starting Local Agent on port {PORT}...")
-    app.run(host=HOST, port=PORT, debug=False)
+    # Note: Flask doesn't support graceful restart easily
+    # For now, just open browser again
+    open_browser_action()
+
+def exit_action(icon=None, item=None):
+    """Exit the application."""
+    global tray_icon
+    if tray_icon:
+        tray_icon.stop()
+    os._exit(0)
+
+def run_flask():
+    """Run Flask server in a thread."""
+    # Suppress Flask's default logging for cleaner operation
+    import logging
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)
+    
+    app.run(host=HOST, port=PORT, debug=False, use_reloader=False, threaded=True)
+
+def setup_tray():
+    """Set up and run the system tray icon."""
+    global tray_icon
+    
+    icon_image = create_tray_icon()
+    
+    menu = pystray.Menu(
+        item('Open NBEN902 Editor', open_browser_action, default=True),
+        item('Restart Server', restart_server_action),
+        pystray.Menu.SEPARATOR,
+        item('Exit', exit_action)
+    )
+    
+    tray_icon = pystray.Icon(
+        "NBEN902",
+        icon_image,
+        "NBEN902 Server Running",
+        menu
+    )
+    
+    return tray_icon
+
+if __name__ == "__main__":
+    # Start Flask server in background thread
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    
+    # Wait for server to start
+    time.sleep(1.5)
+    
+    # Open browser automatically on first launch
+    open_browser_action()
+    
+    # Run system tray (this blocks until Exit is clicked)
+    tray = setup_tray()
+    tray.run()
+
