@@ -57,12 +57,47 @@ function App() {
     }
   };
 
-  const handleLookupSelect = (member: UnifiedMemberProfile) => {
+  const handleLookupSelect = (memberOrMembers: UnifiedMemberProfile | UnifiedMemberProfile[]) => {
     if (lookupMode === 'add') {
-      handleAddToEditor(member);
+      const members = Array.isArray(memberOrMembers) ? memberOrMembers : [memberOrMembers];
+      handleAddToEditor(members);
     } else {
+      const member = Array.isArray(memberOrMembers) ? memberOrMembers[0] : memberOrMembers;
       setSelectedInfoMember(member);
       setIsInfoModalOpen(true);
+    }
+  };
+
+  const handleAddToEditor = (members: UnifiedMemberProfile[]) => {
+    let newRecords: NBEN902Record[] = [];
+    let existingCount = 0;
+
+    // We can use the state 'data' directly since it's the current snapshot
+    const existingIds = new Set(data.map(r => r.employeeId));
+
+    members.forEach(member => {
+      // Check if member exists in the dataset.
+      if (existingIds.has(member.nysEmplid)) {
+        existingCount++;
+      } else {
+        newRecords.push(convertToRecord(member, {
+          code: settings.duplicateDeductionCode,
+          amount: settings.duplicateDeductionAmount
+        }));
+      }
+    });
+
+    if (newRecords.length > 0) {
+      setData(prev => [...prev, ...newRecords]);
+    }
+
+    if (members.length === 1 && existingCount === 1) {
+      alert(`${members[0].name} is already in the editor.`);
+    } else if (members.length > 1) {
+      const added = newRecords.length;
+      if (existingCount > 0) {
+          alert(`Added ${added} members. ${existingCount} were already in the editor.`);
+      }
     }
   };
 
@@ -172,23 +207,22 @@ function App() {
     };
   };
 
-  const handleAddToEditor = (member: UnifiedMemberProfile) => {
-    if (data.some(r => r.employeeId === member.nysEmplid)) {
-      alert(`Member ${member.name} is already in the editor.`);
-      return;
-    }
-    // Use "Duplicate" defaults for Add Member actions
-    setData(prev => [...prev, convertToRecord(member, {
-      code: settings.duplicateDeductionCode,
-      amount: settings.duplicateDeductionAmount
-    })]);
-  };
+
 
 
 
   const handleSaveFile = () => {
+    // Check for missing Effective Dates
+    const missingDates = data.filter(record => !record.effectiveDate);
+    if (missingDates.length > 0) {
+      const confirmSave = window.confirm(
+        `Warning: ${missingDates.length} record(s) have a missing Effective Date.\n\nDo you want to proceed with saving?`
+      );
+      if (!confirmSave) return;
+    }
+
     const content = generateNBEN902Content(data);
-    downloadFile(content, "output.nben902.input");
+    downloadFile(content, "paysrp.nben902.sccea.input");
     if (includeReconciliation && deletedRecords.length > 0) {
       setIsReconciliationModalOpen(true);
     }
@@ -268,7 +302,7 @@ function App() {
         <div className="flex items-center gap-6">
           <div>
             <h1 className="text-sm font-bold tracking-wider text-green-500 select-none leading-none">NBEN902</h1>
-            <span className="text-[10px] text-zinc-500 font-mono">v2.8.4 COMPTROLLER</span>
+            <span className="text-[10px] text-zinc-500 font-mono">v2.8.6 COMPTROLLER</span>
           </div>
 
           <div className="h-8 w-px bg-zinc-800"></div>
@@ -510,9 +544,7 @@ function App() {
         isOpen={isMemberLookupOpen}
         onClose={() => setIsMemberLookupOpen(false)}
         onSelect={handleLookupSelect}
-        actionLabel={lookupMode === 'add' ? 'Add' : 'View Info'}
-        // @ts-ignore
-        actionIcon={lookupMode === 'add' ? Plus : FileText}
+        mode={lookupMode}
       />
 
       <ReconciliationModal

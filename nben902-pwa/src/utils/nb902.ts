@@ -21,7 +21,7 @@ export const COLUMN_SPECS = [
 ] as const;
 
 export const TOOLTIPS: Record<string, string> = {
-    "Agency Code": "Agency Code for your organization\nAgency Code for the other locations",
+    "Agency Code": "Agency Code for Suffolk County is 05527\nAgency Code for the Academy is 05007",
     "Deduction Code": "456 for union dues\n407 for the PAC fund",
     "Effective Date": "The Thursday after the last payday",
     "Deduction End Date": "Can be the Thursday after the last payday"

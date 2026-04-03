@@ -18,18 +18,18 @@ export interface AppSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-    agencyCode: "00000",  // Configure your agency code
+    agencyCode: "00000",
     loadDefaultDeductionCode: "456",
-    loadDefaultDeductionAmount: "2000",
+    loadDefaultDeductionAmount: "1000",
     newRowDeductionCode: "456",
-    newRowDeductionAmount: "2000",
+    newRowDeductionAmount: "1000",
     duplicateDeductionCode: "407",
     duplicateDeductionAmount: "100",
 
-    // Transmission Defaults - Configure for your SFTP server
-    sftpHost: "sftp.example.com",
+    // Transmission Defaults
+    sftpHost: "",
     sftpPort: 22,
-    sftpUser: "your_username",
+    sftpUser: "",
     sftpSourceIp: "",
     sftpRemotePath: "/inbound",
     localServerUrl: "http://localhost:9020"

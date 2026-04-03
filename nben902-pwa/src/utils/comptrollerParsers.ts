@@ -14,7 +14,7 @@ export const parseNPAY528 = (content: string): NPAY528Record[] => {
         // Helper to safe slice
         const get = (start: number, len: number) => line.slice(start, start + len).trim();
 
-        // Agency Code Padding Logic: "00000"
+        // Agency Code Padding Logic: "05527"
         let agency = get(59, 5);
         if (agency && /^\d+$/.test(agency)) {
             agency = agency.padStart(5, '0');

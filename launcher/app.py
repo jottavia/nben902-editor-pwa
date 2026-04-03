@@ -52,7 +52,7 @@ def serve_static(path):
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    return jsonify({"status": "ok", "agent": "NBEN902 Launcher", "version": "1.0.0"})
+    return jsonify({"status": "ok", "agent": "NBEN902 Launcher", "version": "2.8.6"})
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -65,13 +65,19 @@ def upload_file():
         if not data:
             return jsonify({"success": False, "message": "No data provided"}), 400
 
-        host = data.get('host')
+        host = data.get('host', '').strip()
+        # Remove sftp:// or ftp:// prefix if user pasted it
+        if host.startswith('sftp://'):
+            host = host[7:]
+        elif host.startswith('ftp://'):
+            host = host[6:]
+        
         port = int(data.get('port', 22))
-        username = data.get('username')
-        password = data.get('password')
-        source_ip = data.get('source_ip')  # Optional source binding
-        remote_path = data.get('remote_path', '/inbound/')
-        filename = data.get('filename')
+        username = data.get('username', '').strip()
+        password = data.get('password', '')
+        source_ip = data.get('source_ip', '').strip()
+        remote_path = data.get('remote_path', '/inbound/').strip()
+        filename = data.get('filename', '').strip()
         content = data.get('file_content')
 
         # Debug: Log what we received BEFORE validation
@@ -139,7 +145,8 @@ def upload_file():
             # Write content to temp file for upload
             temp_local_path = None
             try:
-                with tempfile.NamedTemporaryFile(delete=False, mode='w', encoding='utf-8', suffix='.tmp') as tf:
+                # `newline=''` ensures we don't accidentally do \r\n -> \r\r\n on Windows
+                with tempfile.NamedTemporaryFile(delete=False, mode='w', encoding='utf-8', suffix='.tmp', newline='') as tf:
                     tf.write(content)
                     temp_local_path = tf.name
                 
@@ -188,6 +195,14 @@ def upload_file():
                 "message": f"Connection to {host}:{port} timed out. Check network/firewall.",
                 "debug_log": "\n".join(debug_log)
             }), 504
+
+        except socket.gaierror as gai_e:
+            debug_log.append(f"Host resolution failed: {gai_e}")
+            return jsonify({
+                "success": False,
+                "message": f"Could not resolve host '{host}'. Check the hostname and your network.",
+                "debug_log": "\n".join(debug_log)
+            }), 400
 
         except Exception as sftp_e:
             debug_log.append(f"SFTP Error: {sftp_e}")

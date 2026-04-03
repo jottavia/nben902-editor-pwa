@@ -77,9 +77,13 @@ export function TransmitModal({ isOpen, onClose, settings, onSuccess }: Transmit
                 file_content: fileContent
             };
             console.log("Payload filename:", payload.filename, "content length:", payload.file_content.length);
+            // Normalize URL (in case user added trailing slash or '/upload')
+            let baseUrl = settings.localServerUrl.trim();
+            if (baseUrl.endsWith('/')) baseUrl = baseUrl.slice(0, -1);
+            if (baseUrl.endsWith('/upload')) baseUrl = baseUrl.slice(0, -7);
 
             // Send to Local Agent
-            const response = await fetch(`${settings.localServerUrl}/upload`, {
+            const response = await fetch(`${baseUrl}/upload`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -87,7 +91,19 @@ export function TransmitModal({ isOpen, onClose, settings, onSuccess }: Transmit
                 body: JSON.stringify(payload)
             });
 
-            const data = await response.json();
+            const contentType = response.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                const textDetail = await response.text();
+                throw new Error(`Server returned non-JSON response (${response.status} ${response.statusText}):\n${textDetail.substring(0, 150)}...`);
+            }
+
+            const rawText = await response.text();
+            let data;
+            try {
+                data = JSON.parse(rawText);
+            } catch (e) {
+                throw new Error(`Invalid JSON received (${response.status}): ${rawText.substring(0, 150)}...`);
+            }
 
             // Capture logs if present
             if (data.debug_log) {
@@ -103,11 +119,18 @@ export function TransmitModal({ isOpen, onClose, settings, onSuccess }: Transmit
                 setMessage(data.message || 'Transmission failed. Agent returned an error.');
             }
 
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
             setStatus('error');
-            setMessage(`Connection Error: Could not reach Local Agent at ${settings.localServerUrl}. Is it running?`);
-            setDebugLog(prev => prev + `\nGUI Error: ${String(error)}`);
+            
+            // Check if it's our custom error or a standard fetch connection error
+            if (error.message && error.message.includes("Server returned non-JSON response")) {
+                setMessage(`Local Agent responded with an unexpected format. Please check the 'localServerUrl' setting or ensure the agent isn't blocked by a firewall.`);
+            } else {
+                setMessage(`Connection Error: Could not reach Local Agent at ${settings.localServerUrl}. Is it running?`);
+            }
+            
+            setDebugLog(prev => prev + `\nGUI Error: ${error.message || String(error)}`);
         }
     };
 

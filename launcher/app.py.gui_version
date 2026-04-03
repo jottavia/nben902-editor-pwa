@@ -1,0 +1,179 @@
+
+import os
+import sys
+import webbrowser
+import threading
+import time
+import json
+import paramiko
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+import logging
+import io
+import socket
+import subprocess
+import tempfile
+import stat
+import urllib.parse
+import shutil
+
+# Configuration
+PORT = 9020
+HOST = 'localhost'
+
+# Determine paths
+if getattr(sys, 'frozen', False):
+    # If we are running in a PyInstaller bundle
+    BASE_DIR = sys._MEIPASS
+    STATIC_FOLDER = os.path.join(BASE_DIR, 'www')
+else:
+    # If we are running as a script (Development)
+    # We assume the script is in /launcher, and the react build is in /nben902-pwa/dist
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    STATIC_FOLDER = os.path.join(BASE_DIR, '..', 'nben902-pwa', 'dist')
+
+print(f"Server Root: {BASE_DIR}")
+print(f"Serving Web App from: {STATIC_FOLDER}")
+
+app = Flask(__name__, static_folder=STATIC_FOLDER, static_url_path='')
+CORS(app)  # Enable CORS for all routes (useful if dev server is separate)
+
+@app.route('/')
+def serve_index():
+    return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/<path:path>')
+def serve_static(path):
+    if os.path.exists(os.path.join(app.static_folder, path)):
+        return send_from_directory(app.static_folder, path)
+    else:
+        # Fallback to index.html for React Router
+        return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "ok", "agent": "NBEN902 Launcher", "version": "1.0.0"})
+
+@app.route('/upload', methods=['POST'])
+def upload_file():
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"success": False, "message": "No data provided"}), 400
+
+        host = data.get('host')
+        port = int(data.get('port', 22))
+        username = data.get('username')
+        password = data.get('password')
+        source_ip = data.get('source_ip') # Optional source binding
+        remote_path = data.get('remote_path', '.')
+        filename = data.get('filename')
+        content = data.get('file_content')
+
+        if not all([host, username]):
+            return jsonify({"success": False, "message": "Missing required fields (Host/User)"}), 400
+
+        # --- CAPTURE LOGS ---
+        # Capture paramiko logs to a string buffer
+        log_capture_string = io.StringIO()
+        ch = logging.StreamHandler(log_capture_string)
+        ch.setLevel(logging.DEBUG)
+        
+        # Get paramiko logger
+        paramiko_logger = logging.getLogger("paramiko")
+        paramiko_logger.setLevel(logging.DEBUG)
+        paramiko_logger.addHandler(ch)
+        
+        debug_log = [f"Starting connection to {host}:{port} (Delegated to GUI)..."]
+        
+        # DEBUG: Log all received data
+        print(f"=== UPLOAD REQUEST ===")
+        print(f"Host: {host}, User: {username}")
+        print(f"Password Provided: {'YES' if password else 'NO'} (len={len(password) if password else 0})")
+        print(f"File Content Provided: {'YES' if content else 'NO'} (len={len(content) if content else 0})")
+        print(f"Filename: {filename}")
+        print(f"Source IP: {source_ip}")
+        print(f"======================")
+        sys.stdout.flush()
+
+
+        # --- GUI LAUNCHING LOGIC (Using Standalone EXE) ---
+        try:
+            temp_local_path = None
+            if content:
+                # Create a temporary file to store the content
+                with tempfile.NamedTemporaryFile(delete=False, mode='w', encoding='utf-8') as tf:
+                    tf.write(content)
+                    temp_local_path = tf.name
+
+            # Determine path to the GUI executable
+            if getattr(sys, 'frozen', False):
+                 # If in PyInstaller bundle - EXE should be adjacent to main executable
+                 gui_exe_path = os.path.join(os.path.dirname(sys.executable), 'TransmitSFTP.exe')
+            else:
+                 # If in Development - EXE is in dist folder
+                 gui_exe_path = os.path.join(BASE_DIR, 'dist', 'TransmitSFTP.exe')
+
+            debug_log.append(f"Target GUI Executable: {gui_exe_path}")
+            
+            # Verify exe exists
+            if not os.path.exists(gui_exe_path):
+                raise FileNotFoundError(f"TransmitSFTP.exe not found at {gui_exe_path}. Run PyInstaller build first.")
+
+            # Construct the arguments list for the EXE
+            cmd_args = [gui_exe_path, 
+                   '--host', host,
+                   '--user', username,
+                   '--passw', password if password else ""]
+            
+            if temp_local_path:
+                cmd_args.extend(['--file', temp_local_path])
+
+            if source_ip:
+                cmd_args.extend(['--source_ip', source_ip])
+
+            # Convert to a safe command line string
+            cmd_str = subprocess.list2cmdline(cmd_args)
+            
+            # Launch via cmd.exe 'start' command for full process detachment
+            # The start command creates a completely new process tree
+            final_cmd = f'start "" {cmd_str}'
+            debug_log.append(f"Launching via CMD: {final_cmd}")
+
+            subprocess.Popen(final_cmd, shell=True)
+
+            return jsonify({
+                "success": True, 
+                "message": "Transmission Interface Launched. Check your taskbar.",
+                "timestamp": time.time(),
+                "debug_log": f"Launched GUI: {cmd_str}"
+            })
+
+        except Exception as e:
+            # If GUI launch fails, log it and return an error
+            debug_log.append(f"Failed to launch GUI application: {e}")
+            full_log = "\n".join(debug_log)
+            return jsonify({
+                "success": False, 
+                "message": f"Failed to launch GUI for upload: {str(e)}", 
+                "debug_log": full_log
+            }), 500
+
+    except Exception as e:
+        print(f"Server Error: {e}")
+        return jsonify({"success": False, "message": f"Server Error: {str(e)}"}), 500
+
+
+def open_browser():
+    """Wait a moment for server to start, then open browser."""
+    time.sleep(1.5)
+    url = f"http://{HOST}:{PORT}"
+    print(f"Opening browser to {url}...")
+    webbrowser.open(url)
+
+if __name__ == "__main__":
+    # Auto-launch browser in a separate thread
+    threading.Thread(target=open_browser).start()
+    
+    print(f"Starting Local Agent on port {PORT}...")
+    app.run(host=HOST, port=PORT, debug=False)
