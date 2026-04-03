@@ -1,7 +1,7 @@
 # NBEN902 Editor - User Guide
 
-**Version:** 2.8.4  
-**Last Updated:** February 2026
+**Version:** 2.8.6  
+**Last Updated:** April 2026
 
 ---
 
@@ -75,7 +75,7 @@ Some antivirus software may flag the application as suspicious. This is a **fals
 ### Adding Records
 
 - Click **"Add Row"** to add a blank record
-- Or use **"Add existing member"** to search and add from loaded data
+- Or use **"Add existing member"** to search and select multiple members using checkboxes from the loaded data. Click "Add Selected" to add them to your editor.
 
 ### Duplicating Records
 
