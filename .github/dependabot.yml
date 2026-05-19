@@ -1,13 +1,85 @@
+# Canonical Dependabot config maintained at jottavia/sec-scanner/templates/dependabot.yml
+# Deployed to each repo's .github/dependabot.yml via scripts/Deploy-Templates.ps1
+# and automatically applied on new-repo detection by the daily-anomaly-scan workflow.
+#
+# Design goals:
+#   - Group patch + minor bumps into a single weekly PR per ecosystem -> 1-2 PRs/repo/week.
+#   - Keep majors separate (need human review).
+#   - Group all security updates together for fast triage.
+#   - Pin action versions weekly so SHA-pinned references stay current.
+
 version: 2
 updates:
+
+  # GitHub Actions workflows (always present after Phase 2 onboarding)
   - package-ecosystem: github-actions
-    directory: /
+    directory: "/"
     schedule:
       interval: weekly
       day: monday
-      time: '04:00'
+      time: "04:00"
     open-pull-requests-limit: 5
     groups:
       actions:
-        patterns:
-          - "*"
+        patterns: ["*"]
+        update-types: [patch, minor]
+
+  # npm
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+    open-pull-requests-limit: 10
+    groups:
+      npm-non-major:
+        update-types: [patch, minor]
+      npm-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  # pip / requirements.txt
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+    open-pull-requests-limit: 10
+    groups:
+      pip-non-major:
+        update-types: [patch, minor]
+      pip-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  # cargo (Rust)
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+    open-pull-requests-limit: 5
+    groups:
+      cargo-non-major:
+        update-types: [patch, minor]
+      cargo-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  # go modules
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+    open-pull-requests-limit: 5
+    groups:
+      gomod-non-major:
+        update-types: [patch, minor]
+      gomod-security:
+        applies-to: security-updates
+        patterns: ["*"]
