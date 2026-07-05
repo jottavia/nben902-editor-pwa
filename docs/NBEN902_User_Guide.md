@@ -1,16 +1,20 @@
 # NBEN902 Editor - User Guide
 
-**Version:** 2.8.6  
-**Last Updated:** April 2026
+**Version:** 2.8.7  
+**Last Updated:** July 2026
 
 ---
 
 ## Quick Start
 
 1. **Double-click** `NBEN902_Launcher.exe`
-2. Your web browser will automatically open to the editor
+2. The editor opens in its own application window
 3. Start working with your NBEN902 files
-4. When finished, close the black console window to exit
+4. When finished, close the window to exit
+
+> **Note:** On systems without Microsoft Edge WebView2, the app falls back
+> to the previous behavior: a system tray icon appears and the editor opens
+> in your web browser instead.
 
 ---
 
@@ -112,6 +116,16 @@ Some antivirus software may flag the application as suspicious. This is a **fals
 6. Click **"Transmit File"**
 7. Wait for confirmation
 
+### Test Connection
+
+Before transmitting (or when a transmission fails), click **"Test Connection"**
+in the Secure Transmit dialog. It checks each step of the connection in order -
+DNS lookup, network connection, SSH handshake, login, and SFTP access - and
+shows a PASS/FAIL result for each stage in the log panel. The password is
+optional: without it, the network path is still fully tested.
+
+The test is read-only and never sends or modifies any files.
+
 ### Transmission Settings
 
 Access via the **Settings** (gear icon) button:
@@ -167,11 +181,14 @@ Another instance may be running, or another application uses this port.
 - Network/firewall blocking port 22
 - Incorrect server address
 - VPN not connected (if required)
+- A stale Source IP setting pointing at an interface with no route to the server
 
 **Solutions:**
-1. Verify network connectivity
-2. Check SFTP settings are correct
-3. Try specifying a Source IP if you have multiple network adapters
+1. Click **"Test Connection"** in the Transmit dialog - the stage-by-stage
+   log shows exactly where the connection fails
+2. Verify network connectivity
+3. Check SFTP settings are correct
+4. If a Source IP is set, try clearing it
 
 ### Application won't start
 

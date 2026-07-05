@@ -302,7 +302,7 @@ function App() {
         <div className="flex items-center gap-6">
           <div>
             <h1 className="text-sm font-bold tracking-wider text-green-500 select-none leading-none">NBEN902</h1>
-            <span className="text-[10px] text-zinc-500 font-mono">v2.8.6 COMPTROLLER</span>
+            <span className="text-[10px] text-zinc-500 font-mono">v2.8.7 COMPTROLLER</span>
           </div>
 
           <div className="h-8 w-px bg-zinc-800"></div>

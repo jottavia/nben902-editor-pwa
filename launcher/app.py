@@ -52,7 +52,7 @@ def serve_static(path):
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    return jsonify({"status": "ok", "agent": "NBEN902 Launcher", "version": "2.8.6"})
+    return jsonify({"status": "ok", "agent": "NBEN902 Launcher", "version": "2.8.7"})
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -113,6 +113,11 @@ def upload_file():
         sys.stdout.flush()
 
         try:
+            # Resolve host first so DNS failures are distinct from timeouts
+            debug_log.append(f"Resolving host {host}...")
+            resolved_ip = socket.gethostbyname(host)
+            debug_log.append(f"Resolved {host} -> {resolved_ip}")
+
             # Create socket for connection
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(15)  # 15 second connection timeout
@@ -122,18 +127,21 @@ def upload_file():
                 try:
                     debug_log.append(f"Binding to source IP: {source_ip}")
                     sock.bind((source_ip, 0))
+                    debug_log.append(f"Bound to {source_ip}. NOTE: if the connection times out, clear the Source IP setting - this interface may not have a route to the server.")
                 except Exception as bind_e:
                     debug_log.append(f"Bind failed: {bind_e}, using default route")
 
             # Connect
-            debug_log.append(f"Connecting to {host}:{port}...")
-            sock.connect((host, port))
+            debug_log.append(f"Connecting to {resolved_ip}:{port} (TCP)...")
+            sock.connect((resolved_ip, port))
             debug_log.append("TCP connection established")
 
             # Create Paramiko transport
             debug_log.append("Initiating SSH handshake...")
             transport = paramiko.Transport(sock)
-            
+            transport.banner_timeout = 30
+            transport.auth_timeout = 30
+
             debug_log.append(f"Authenticating as {username}...")
             transport.connect(username=username, password=password)
             debug_log.append("Authentication successful")
@@ -149,17 +157,33 @@ def upload_file():
                 with tempfile.NamedTemporaryFile(delete=False, mode='w', encoding='utf-8', suffix='.tmp', newline='') as tf:
                     tf.write(content)
                     temp_local_path = tf.name
-                
+
+                # Integrity guard: the bytes on disk must be exactly the bytes
+                # received. If they ever differ, abort - never send an altered file.
+                import hashlib
+                expected_bytes = content.encode('utf-8')
+                with open(temp_local_path, 'rb') as vf:
+                    written_bytes = vf.read()
+                if written_bytes != expected_bytes:
+                    debug_log.append("INTEGRITY CHECK FAILED: written file does not match received content. Transmission aborted.")
+                    return jsonify({
+                        "success": False,
+                        "message": "File integrity check failed - transmission aborted. The file was NOT sent.",
+                        "debug_log": "\n".join(debug_log)
+                    }), 500
+                sha256 = hashlib.sha256(written_bytes).hexdigest()
+                debug_log.append(f"Integrity verified: {len(written_bytes)} bytes, SHA-256 {sha256[:16]}...")
+
                 # Construct remote path
                 if remote_path and not remote_path.endswith('/'):
                     remote_path += '/'
                 remote_full_path = remote_path + filename
-                
+
                 debug_log.append(f"Uploading to: {remote_full_path}")
-                
-                # Perform upload
+
+                # Perform upload (put() confirms the remote file size matches)
                 sftp.put(temp_local_path, remote_full_path)
-                debug_log.append("Upload complete!")
+                debug_log.append(f"Upload complete! Remote size confirmed = {len(written_bytes)} bytes.")
                 
             finally:
                 # Cleanup temp file
@@ -189,12 +213,22 @@ def upload_file():
             }), 401
 
         except socket.timeout as timeout_e:
+            last_stage = debug_log[-1] if debug_log else "unknown stage"
             debug_log.append(f"Connection timed out: {timeout_e}")
+            hint = "Try clearing the Source IP setting." if source_ip else "Check network/VPN/firewall (outbound port 22)."
             return jsonify({
                 "success": False,
-                "message": f"Connection to {host}:{port} timed out. Check network/firewall.",
+                "message": f"Connection to {host}:{port} timed out during: {last_stage} - {hint}",
                 "debug_log": "\n".join(debug_log)
             }), 504
+
+        except paramiko.SSHException as ssh_e:
+            debug_log.append(f"SSH handshake/protocol error: {ssh_e}")
+            return jsonify({
+                "success": False,
+                "message": f"SSH negotiation with {host}:{port} failed: {ssh_e}",
+                "debug_log": "\n".join(debug_log)
+            }), 502
 
         except socket.gaierror as gai_e:
             debug_log.append(f"Host resolution failed: {gai_e}")
@@ -218,6 +252,121 @@ def upload_file():
         print(f"Server Error: {e}")
         sys.stdout.flush()
         return jsonify({"success": False, "message": f"Server Error: {str(e)}"}), 500
+
+
+@app.route('/test-connection', methods=['POST'])
+def test_connection():
+    """
+    Staged SFTP connectivity diagnostic: DNS -> TCP -> SSH -> Auth -> SFTP.
+    Auth and SFTP stages only run when username/password are provided.
+    Read-only - never writes to the remote server.
+    """
+    data = request.json or {}
+    host = (data.get('host') or '').strip()
+    if host.startswith('sftp://'):
+        host = host[7:]
+    elif host.startswith('ftp://'):
+        host = host[6:]
+    try:
+        port = int(data.get('port', 22))
+    except (TypeError, ValueError):
+        port = 22
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
+    source_ip = (data.get('source_ip') or '').strip()
+    remote_path = (data.get('remote_path') or '.').strip()
+
+    stages = []
+
+    def stage(name, ok, detail):
+        stages.append({"stage": name, "ok": ok, "detail": detail})
+        print(f"[test-connection] {name}: {'OK' if ok else 'FAIL'} - {detail}")
+        sys.stdout.flush()
+
+    def result(success):
+        return jsonify({"success": success, "stages": stages})
+
+    if not host:
+        stage("Input", False, "No host configured. Set the SFTP Host in Settings.")
+        return result(False)
+
+    # Stage 1: DNS
+    try:
+        t0 = time.time()
+        resolved_ip = socket.gethostbyname(host)
+        stage("DNS", True, f"{host} -> {resolved_ip} ({int((time.time() - t0) * 1000)} ms)")
+    except socket.gaierror as e:
+        stage("DNS", False, f"Cannot resolve '{host}': {e}. Check the hostname, VPN, or DNS.")
+        return result(False)
+
+    # Stage 2: TCP connect (with optional source interface bind)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(15)
+    if source_ip:
+        try:
+            sock.bind((source_ip, 0))
+            stage("Bind", True, f"Bound to source IP {source_ip}")
+        except Exception as e:
+            stage("Bind", False, f"Could not bind to {source_ip} ({e}); using default route")
+    try:
+        t0 = time.time()
+        sock.connect((resolved_ip, port))
+        stage("TCP", True, f"Connected to {resolved_ip}:{port} ({int((time.time() - t0) * 1000)} ms)")
+    except socket.timeout:
+        hint = "Try clearing the Source IP setting." if source_ip else "A firewall or VPN is likely blocking outbound port 22."
+        stage("TCP", False, f"Connection to {resolved_ip}:{port} timed out. {hint}")
+        sock.close()
+        return result(False)
+    except Exception as e:
+        stage("TCP", False, f"Connect failed: {e}")
+        sock.close()
+        return result(False)
+
+    # Stage 3: SSH handshake
+    transport = None
+    try:
+        transport = paramiko.Transport(sock)
+        transport.banner_timeout = 30
+        t0 = time.time()
+        transport.start_client(timeout=20)
+        key_name = transport.get_remote_server_key().get_name()
+        stage("SSH", True, f"Handshake OK, server key {key_name} ({int((time.time() - t0) * 1000)} ms)")
+    except Exception as e:
+        stage("SSH", False, f"SSH handshake failed: {e}")
+        if transport:
+            transport.close()
+        return result(False)
+
+    # Stage 4: Authentication (optional)
+    if not username or not password:
+        stage("Auth", True, "Skipped (enter username/password to test login). Network path is good.")
+        transport.close()
+        return result(True)
+    try:
+        transport.auth_password(username, password)
+        stage("Auth", True, f"Authenticated as {username}")
+    except paramiko.AuthenticationException as e:
+        stage("Auth", False, f"Authentication rejected: {e}")
+        transport.close()
+        return result(False)
+    except Exception as e:
+        stage("Auth", False, f"Authentication error: {e}")
+        transport.close()
+        return result(False)
+
+    # Stage 5: SFTP session + directory listing (read-only)
+    try:
+        sftp = paramiko.SFTPClient.from_transport(transport)
+        entries = sftp.listdir(remote_path or '.')
+        stage("SFTP", True, f"Session opened, listed '{remote_path}' ({len(entries)} entries)")
+        sftp.close()
+    except Exception as e:
+        stage("SFTP", False, f"Session/list failed for '{remote_path}': {e}")
+        transport.close()
+        return result(False)
+
+    transport.close()
+    return result(True)
 
 
 # ============== System Tray Implementation ==============
@@ -312,18 +461,35 @@ def setup_tray():
     
     return tray_icon
 
+def run_native_window():
+    """Open the PWA in a native desktop window (Edge WebView2 via pywebview)."""
+    import webview
+    webview.create_window(
+        'NBEN902 Editor',
+        f"http://{HOST}:{PORT}",
+        width=1280,
+        height=850,
+        min_size=(900, 600)
+    )
+    webview.start()  # Blocks until the window is closed
+
+
 if __name__ == "__main__":
     # Start Flask server in background thread
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
-    
+
     # Wait for server to start
     time.sleep(1.5)
-    
-    # Open browser automatically on first launch
-    open_browser_action()
-    
-    # Run system tray (this blocks until Exit is clicked)
-    tray = setup_tray()
-    tray.run()
+
+    # Preferred mode: native desktop window. Closing the window exits the app.
+    # Fallback mode (WebView2 unavailable): legacy browser tab + system tray.
+    try:
+        run_native_window()
+        os._exit(0)
+    except Exception as e:
+        print(f"Native window unavailable ({e}), falling back to browser + tray")
+        open_browser_action()
+        tray = setup_tray()
+        tray.run()
 
