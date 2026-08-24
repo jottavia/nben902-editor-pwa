@@ -8,10 +8,11 @@
 #   - Group all security updates together for fast triage.
 #   - Pin action versions weekly so SHA-pinned references stay current.
 
+# NOTE: entries below are auto-tailored to this repo's detected manifests
+# by scripts/Build-DependabotConfig.ps1 - do not add ecosystems the repo lacks.
 version: 2
 updates:
 
-  # GitHub Actions workflows (always present after Phase 2 onboarding)
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
@@ -24,9 +25,8 @@ updates:
         patterns: ["*"]
         update-types: [patch, minor]
 
-  # npm
   - package-ecosystem: npm
-    directory: "/"
+    directory: "/nben902-pwa"
     schedule:
       interval: weekly
       day: monday
@@ -39,9 +39,8 @@ updates:
         applies-to: security-updates
         patterns: ["*"]
 
-  # pip / requirements.txt
   - package-ecosystem: pip
-    directory: "/"
+    directory: "/launcher"
     schedule:
       interval: weekly
       day: monday
@@ -51,35 +50,5 @@ updates:
       pip-non-major:
         update-types: [patch, minor]
       pip-security:
-        applies-to: security-updates
-        patterns: ["*"]
-
-  # cargo (Rust)
-  - package-ecosystem: cargo
-    directory: "/"
-    schedule:
-      interval: weekly
-      day: monday
-      time: "04:00"
-    open-pull-requests-limit: 5
-    groups:
-      cargo-non-major:
-        update-types: [patch, minor]
-      cargo-security:
-        applies-to: security-updates
-        patterns: ["*"]
-
-  # go modules
-  - package-ecosystem: gomod
-    directory: "/"
-    schedule:
-      interval: weekly
-      day: monday
-      time: "04:00"
-    open-pull-requests-limit: 5
-    groups:
-      gomod-non-major:
-        update-types: [patch, minor]
-      gomod-security:
         applies-to: security-updates
         patterns: ["*"]
