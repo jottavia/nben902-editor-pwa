@@ -8,7 +8,8 @@ on:
   push:
     branches: [main, master]
   pull_request:
-  # schedule removed 2026-08-23: on-demand-only posture (push/PR/dispatch only)
+  schedule:
+    - cron: '0 7 * * 0'
   workflow_dispatch:
 
 permissions:
