@@ -1,14 +1,14 @@
-name: Security Baseline
+# Inline security baseline workflow.
+# Used by public repos (which cannot call reusable workflows from private repos per GitHub policy).
+# Mirrors jottavia/sec-scanner/.github/workflows/security-baseline-reusable.yml - keep in sync.
 
-# Public repos cannot call reusable workflows from private repos (GitHub policy).
-# Inlined equivalent of jottavia/sec-scanner/.github/workflows/security-baseline-reusable.yml
+name: Security Baseline
 
 on:
   push:
     branches: [main, master]
   pull_request:
-  schedule:
-    - cron: '0 7 * * 0'
+  # schedule removed 2026-08-23: on-demand-only posture (push/PR/dispatch only)
   workflow_dispatch:
 
 permissions:
